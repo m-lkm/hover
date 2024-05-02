@@ -12,6 +12,8 @@ import pickle
 
 # TODO
 
+# need to send model parmeters to device
+
 # committe member score out of date
 # add an Evaluate
 
@@ -215,7 +217,7 @@ class Copter:
         self.Reset()
         game_over = False
         while not game_over and self.step < self.max_num_steps:        
-            a = self.actor(self.state, training=True).flatten().detach().numpy() # see 
+            a = self.actor(self.state, training=True).flatten().detach().to("cpu").numpy() # see 
             self.prop_force_1, self.prop_force_2 = a
         
             # here
@@ -270,9 +272,9 @@ class Copter:
         while not game_over and self.step < self.max_num_steps:
             if use_committee:
                 a_arr = [actor(self.state) for _, actor in self.committee_heap]
-                a  = torch.stack(a_arr).mean(0).flatten().detach().numpy()
+                a  = torch.stack(a_arr).mean(0).flatten().detach().to("cpu").numpy()
             else:
-                a = self.actor(self.state).flatten().detach().numpy() # see 
+                a = self.actor(self.state).flatten().detach().to("cpu").numpy() # see 
             self.prop_force_1, self.prop_force_2 = a
             s_prime = solve_ivp(copter.GetStatePrime, [0,self.time_step], copter.state,  t_eval=[self.time_step], method="RK23").y.flatten()
             game_over = self.IsGameOver(s_prime)

@@ -16,12 +16,12 @@ from math import log, exp
 class Actor(nn.Module):
     def __init__(self, num_hidden=50, max_output=1.0, lr=1e-5, prob_random=1.0, min_prob_random=0.05, prob_random_half_life = 5_000):
         super().__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+
         self.num_inputs = 6
         self.num_outputs = 2
         self.max_output = max_output
         
-        # here 
         max_rel_noise = 0.02
         self.max_noise = self.max_output * max_rel_noise
         self.max_noise_change = self.max_noise / 5
@@ -47,8 +47,12 @@ class Actor(nn.Module):
         self.noise_distro = torch.distributions.uniform.Uniform(-self.max_noise_change, self.max_noise_change)
         # self.noise_distro = torch.distributions.uniform.Uniform(-max_output, max_output)
         # self.noise_distro = torch.distributions.uniform.Uniform(-max_rel_noise * max_output, max_rel_noise * max_output)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if self.device == "cuda":
+            self.cuda()
         self.trailer = deepcopy(self)
-        self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=1e-5, lr=lr) # weight decay as L2 regularization term        
+        self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=1e-5, lr=lr) # weight decay as L2 regularization term
+        
         return
 
     '''
@@ -58,7 +62,7 @@ class Actor(nn.Module):
     
     def GetGreedyMove(self, x):
         if type(x) != torch.Tensor:
-            x = torch.Tensor(x).reshape(-1, self.num_inputs)
+            x = torch.Tensor(x).reshape(-1, self.num_inputs).to(self.device)
         y = self.Activation(self.FC1(x))
         # y = torch.hstack([x, y])
         y = self.Activation(self.FC2(y))
@@ -70,11 +74,14 @@ class Actor(nn.Module):
     def GetNoisyMove(self, x):
         x = self.GetGreedyMove(x)
         with torch.no_grad():
-            noise = self.noise_distro.sample((self.num_outputs,))
+            noise = self.noise_distro.sample((self.num_outputs,)).to(self.device)
             # print(noise)
             self.noise  = self.noise +  noise 
             self.noise = self.noise.clip(-self.max_noise, self.max_noise)
             self.noise = self.noise * self.noise_decay_rate
+
+        # print(f"{x.device = }")
+        # print(f"{self.noise.device = }")
 
         x = x + self.noise
         x = x.clip(-self.max_output, self.max_output)
@@ -156,7 +163,6 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, num_hidden=50, gamma=0.99, lr=1e-5, output_scalar=1):
         super().__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.num_inputs = 6
         self.num_outputs = 2
         self.gamma=gamma
@@ -173,6 +179,9 @@ class Critic(nn.Module):
         self.Activation = torch.cos
         self.OutputActivation = nn.Sigmoid()
         self.output_scalar = output_scalar
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if self.device == "cuda":
+            self.cuda()
         self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=1e-5, lr=lr) # weight decay as L2 regularization term
         self.Loss = torch.nn.MSELoss()
         return
@@ -232,7 +241,7 @@ class Critic(nn.Module):
 
         loss.backward()
         self.optimizer.step()
-        return losses.detach().numpy().flatten()
+        return losses.detach().to("cpu").numpy().flatten()
 
     def MirrorState(self, state):
         # x -> -x
@@ -252,12 +261,12 @@ class Critic(nn.Module):
 
     def forward(self, state, action):
         if type(state) != torch.Tensor:
-            state = torch.Tensor(state).reshape(-1, self.num_inputs)
+            state = torch.Tensor(state).reshape(-1, self.num_inputs).to(self.device)
 
         if type(action) != torch.Tensor:
-            action = torch.Tensor(action).reshape(-1, self.num_outputs)
+            action = torch.Tensor(action).reshape(-1, self.num_outputs).to(self.device)
 
-        mirror_state_mask = (state[:,0] < 0).reshape(-1,1)
+        mirror_state_mask = (state[:,0] < 0).reshape(-1,1).to(self.device)
         mirrored_states = self.MirrorState(state)
         mirrored_actions = self.MirrorAction(action)
         state = state * (~mirror_state_mask) + mirrored_states * mirror_state_mask
