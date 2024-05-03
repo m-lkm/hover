@@ -182,8 +182,37 @@ class Critic(nn.Module):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         if self.device == "cuda":
             self.cuda()
+        self.trailer = deepcopy(self)
         self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=1e-5, lr=lr) # weight decay as L2 regularization term
         self.Loss = torch.nn.MSELoss()
+        return
+
+    def forward(self, state, action):
+        if type(state) != torch.Tensor:
+            state = torch.Tensor(state).reshape(-1, self.num_inputs).to(self.device)
+
+        if type(action) != torch.Tensor:
+            action = torch.Tensor(action).reshape(-1, self.num_outputs).to(self.device)
+
+        mirror_state_mask = (state[:,0] < 0).reshape(-1,1).to(self.device)
+        mirrored_states = self.MirrorState(state)
+        mirrored_actions = self.MirrorAction(action)
+        state = state * (~mirror_state_mask) + mirrored_states * mirror_state_mask
+        action = action * (~mirror_state_mask) + mirrored_actions * mirror_state_mask
+        x = torch.hstack([state, action])
+        
+        y = self.Activation(self.FC1(x))
+        # y = torch.hstack([x,y])
+        y = self.Activation(self.FC2(y))
+        # y = torch.hstack([x,y])
+        y = self.OutputActivation(self.FCOut(y))
+        y = y * self.output_scalar
+        return y 
+
+    def UpdateTrailer(self, frac_new=1.0):
+        frac_old = 1.0 - frac_new
+        for new, old in zip(self.parameters(), self.trailer.parameters()):
+            old.data = frac_old * old.data + frac_new * new.data
         return
 
     def FormatBatch(self, s, a, r, s_prime, game_over):
@@ -226,8 +255,8 @@ class Critic(nn.Module):
         
         q = self(state, action)
         with torch.no_grad():
-            a_prime = actor.trailer.GetGreedyMove(next_state)
-            q_prime = self(next_state, a_prime)
+            a_prime = actor.GetGreedyMove(next_state)
+            q_prime = self.trailer(next_state, a_prime)
             bellman_target = reward + (1-game_over) * self.gamma * q_prime
         losses = (q - bellman_target)**2
         loss = losses.mean()
@@ -259,27 +288,7 @@ class Critic(nn.Module):
         # torch has problem with negative slicing
         return torch.vstack([action[:,1], action[:,0]]).transpose(0,1)
 
-    def forward(self, state, action):
-        if type(state) != torch.Tensor:
-            state = torch.Tensor(state).reshape(-1, self.num_inputs).to(self.device)
-
-        if type(action) != torch.Tensor:
-            action = torch.Tensor(action).reshape(-1, self.num_outputs).to(self.device)
-
-        mirror_state_mask = (state[:,0] < 0).reshape(-1,1).to(self.device)
-        mirrored_states = self.MirrorState(state)
-        mirrored_actions = self.MirrorAction(action)
-        state = state * (~mirror_state_mask) + mirrored_states * mirror_state_mask
-        action = action * (~mirror_state_mask) + mirrored_actions * mirror_state_mask
-        x = torch.hstack([state, action])
-        
-        y = self.Activation(self.FC1(x))
-        # y = torch.hstack([x,y])
-        y = self.Activation(self.FC2(y))
-        # y = torch.hstack([x,y])
-        y = self.OutputActivation(self.FCOut(y))
-        y = y * self.output_scalar
-        return y 
+    
 
 
 if __name__ == "__main__":

@@ -12,6 +12,8 @@ import pickle
 
 # TODO
 
+# should be running trailers on critic instead of actor 
+
 # need to send model parmeters to device
 
 # committe member score out of date
@@ -344,7 +346,7 @@ class Copter:
 
 if __name__ == "__main__":
     batch_size=2
-    lr=1e-3
+    lr=1e-4
     max_dist=1
     actor_num_hidden = 400
     critic_num_hidden = 400
@@ -382,7 +384,8 @@ if __name__ == "__main__":
         i_game += 1
         if i_game%update_freq==0:
             print("updating trailer...")
-            copter.actor.UpdateTrailer()
+            # copter.actor.UpdateTrailer()
+            copter.critic.UpdateTrailer()
 
         if report:
             print(f"survived {survived} steps")
